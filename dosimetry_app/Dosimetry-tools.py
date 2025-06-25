@@ -1,7 +1,7 @@
 import streamlit as st
 import numpy as np
 
-st.title("Monitor Unit (MU) Calculator")
+st.title("Monitor Unit(MU) Calculator")
 
 # Show MU formula with LaTeX
 st.markdown("""
