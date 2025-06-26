@@ -113,15 +113,26 @@ energy = st.selectbox("Beam Energy", list(percent_depth_dose.keys()))
 # Optional Corrections
 st.subheader("Optional Corrections")
 
-# Wedge
+# Wedge setup
 wedge_used = st.radio("Apply Wedge?", ["No", "Yes"])
 wedge_angle = 0
 wf = 1.0
-if wedge_used == "Yes":
-    wedge_angle = st.selectbox("Wedge Angle (degrees)", sorted(wedge_factors.keys()))
-    wf = lookup_wedge_factor(wedge_angle)
+decoupled_wedge = False
 
-# Bolus
+if wedge_used == "Yes":
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        wedge_angle = st.selectbox("Wedge Angle (degrees)", sorted(wedge_factors.keys()))
+    with col2:
+        decoupled_wedge = st.checkbox("Decouple Wedge Inputs?")
+    
+    if decoupled_wedge:
+        with col2:
+            wf = st.number_input("Wedge Factor (manual)", min_value=0.5, max_value=1.0, value=lookup_wedge_factor(wedge_angle), step=0.01)
+    else:
+        wf = lookup_wedge_factor(wedge_angle)
+
+# Bolus setup
 bolus_used = st.checkbox("Apply Bolus?")
 bolus_thickness = 0.0
 if bolus_used:
@@ -240,7 +251,7 @@ st.code(
     ]) + (
         f"\nGeometry: {geometry_short}\n"
         + (f"SSD: {SSD_input:.1f} cm" if geometry_short == "SSD" else "SSD: N/A") +
-        f"\nEnergy: {energy}\nWedge Angle: {wedge_angle}°\nBolus Thickness: {bolus_thickness:.2f} cm"
+        f"\nEnergy: {energy}\nWedge Angle: {wedge_angle}°\nWedge Factor: {wf:.3f}\nBolus Thickness: {bolus_thickness:.2f} cm"
     ),
     language="yaml"
 )
