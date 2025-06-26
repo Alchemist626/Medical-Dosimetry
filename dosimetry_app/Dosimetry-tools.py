@@ -2,7 +2,7 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="MU Calculator with Field Size in %DD", layout="centered")
+st.set_page_config(page_title="MU Calculator with Wedge & Bolus", layout="centered")
 
 st.title("Monitor Unit (MU) Calculator")
 
@@ -49,6 +49,8 @@ percent_depth_dose = {
     }
 }
 
+wedge_factors = {0: 1.00, 15: 0.98, 30: 0.96, 45: 0.94, 60: 0.92}
+
 # Helper functions
 def interpolate_lookup(x, table):
     keys = sorted(table.keys())
@@ -65,7 +67,6 @@ def interpolate_lookup(x, table):
 
 def lookup_percent_dd(energy, field_size, depth):
     fs_list = sorted(percent_depth_dose[energy].keys())
-    # Clamp field size within table bounds
     if field_size <= fs_list[0]:
         lower_fs = upper_fs = fs_list[0]
     elif field_size >= fs_list[-1]:
@@ -75,19 +76,15 @@ def lookup_percent_dd(energy, field_size, depth):
             if field_size < fs_list[i]:
                 lower_fs, upper_fs = fs_list[i-1], fs_list[i]
                 break
-    
-    # Interpolate %DD for depth at both field sizes
     lower_dd = interpolate_lookup(depth, percent_depth_dose[energy][lower_fs])
     upper_dd = interpolate_lookup(depth, percent_depth_dose[energy][upper_fs])
-    
-    # Interpolate over field size
-    if lower_fs == upper_fs:
-        return lower_dd
-    else:
-        return lower_dd + (field_size - lower_fs) * (upper_dd - lower_dd) / (upper_fs - lower_fs)
+    return lower_dd if lower_fs == upper_fs else lower_dd + (field_size - lower_fs) * (upper_dd - lower_dd) / (upper_fs - lower_fs)
 
 def lookup_output_factor(field_size):
     return interpolate_lookup(field_size, output_factor_table)
+
+def lookup_wedge_factor(angle):
+    return interpolate_lookup(angle, wedge_factors)
 
 def calc_tmr(percent_dd, depth, geometry, SSD_input, SAD=SAD_DEFAULT):
     if geometry == "SSD":
@@ -100,7 +97,7 @@ def calc_mu(dose, field_size, mu_rate, tmr, wf, isf, tf):
         return None
     return dose / denom
 
-# Geometry and energy setup
+# Geometry & energy selection
 st.subheader("Geometry & Energy Setup")
 
 geometry = st.radio("Select Geometry Setup", ["SAD (Isocentric)", "SSD (Fixed SSD)"])
@@ -111,18 +108,33 @@ if geometry_short == "SSD":
     SSD_input = st.number_input("SSD (cm)", value=95.0, step=0.5)
 
 st.write(f"**SAD (fixed):** {SAD_DEFAULT} cm")
-
 energy = st.selectbox("Beam Energy", list(percent_depth_dose.keys()))
+
+# Optional Corrections
+st.subheader("Optional Corrections")
+
+# Wedge
+wedge_used = st.radio("Apply Wedge?", ["No", "Yes"])
+wedge_angle = 0
+wf = 1.0
+if wedge_used == "Yes":
+    wedge_angle = st.selectbox("Wedge Angle (degrees)", sorted(wedge_factors.keys()))
+    wf = lookup_wedge_factor(wedge_angle)
+
+# Bolus
+bolus_used = st.checkbox("Apply Bolus?")
+bolus_thickness = 0.0
+if bolus_used:
+    bolus_thickness = st.number_input("Bolus Thickness (cm)", min_value=0.0, value=0.5, step=0.1)
 
 # Input parameters
 st.subheader("Input Parameters")
-
 baseline_inputs = {
     "dose": 200.0,
     "field_size": 10.0,
     "mu_rate": 100.0,
     "depth": 5.0,
-    "wf": 1.0,
+    "wf": wf,
     "isf": 1.0,
     "tf": 1.0,
 }
@@ -137,27 +149,27 @@ increments = {
     "tf": 0.05,
 }
 
-def sensitivity(var_name, inputs, inc, energy, geometry, SSD_input):
-    percent_dd = lookup_percent_dd(energy, inputs["field_size"], inputs["depth"])
-    tmr = calc_tmr(percent_dd, inputs["depth"], geometry, SSD_input)
-    base_mu = calc_mu(inputs["dose"], inputs["field_size"], inputs["mu_rate"], tmr,
-                      inputs["wf"], inputs["isf"], inputs["tf"])
+def sensitivity(var_name, inputs, inc, energy, geometry, SSD_input, bolus_thickness, wf):
+    eff_depth = inputs["depth"] + bolus_thickness
+    percent_dd = lookup_percent_dd(energy, inputs["field_size"], eff_depth)
+    tmr = calc_tmr(percent_dd, eff_depth, geometry, SSD_input)
+    base_mu = calc_mu(inputs["dose"], inputs["field_size"], inputs["mu_rate"], tmr, wf, inputs["isf"], inputs["tf"])
     if not base_mu:
         return None, None
     up, down = inputs.copy(), inputs.copy()
     up[var_name] += inc
     down[var_name] = max(0.01, inputs[var_name] - inc)
     for d in [up, down]:
-        percent_dd = lookup_percent_dd(energy, d["field_size"], d["depth"])
-        tmr_d = calc_tmr(percent_dd, d["depth"], geometry, SSD_input)
-        d["mu"] = calc_mu(d["dose"], d["field_size"], d["mu_rate"], tmr_d,
-                          d["wf"], d["isf"], d["tf"])
+        eff_depth_d = d["depth"] + bolus_thickness
+        percent_dd = lookup_percent_dd(energy, d["field_size"], eff_depth_d)
+        tmr_d = calc_tmr(percent_dd, eff_depth_d, geometry, SSD_input)
+        d["mu"] = calc_mu(d["dose"], d["field_size"], d["mu_rate"], tmr_d, wf, d["isf"], d["tf"])
     return ((up["mu"] - base_mu) / base_mu) * 100, ((down["mu"] - base_mu) / base_mu) * 100
 
 user_inputs = {}
 for key in baseline_inputs:
     inc = increments[key]
-    up_pct, down_pct = sensitivity(key, baseline_inputs, inc, energy, geometry_short, SSD_input)
+    up_pct, down_pct = sensitivity(key, baseline_inputs, inc, energy, geometry_short, SSD_input, bolus_thickness, wf)
     help_text = f"Increase by {inc} → MU {up_pct:+.1f}%, decrease by {inc} → MU {down_pct:+.1f}%" if up_pct else "N/A"
     user_inputs[key] = st.number_input(
         key.replace("_", " ").capitalize(),
@@ -166,7 +178,7 @@ for key in baseline_inputs:
         help=help_text
     )
 
-# Display calculation parameters
+# Display parameters
 st.markdown("---")
 st.subheader("Dose Calculation Parameters")
 
@@ -177,12 +189,16 @@ else:
 
 st.write(f"**SAD:** {SAD_DEFAULT} cm (fixed)")
 
-percent_dd_display = lookup_percent_dd(energy, user_inputs["field_size"], user_inputs["depth"])
-st.write(f"**Percent Depth Dose (%DD) at {user_inputs['depth']:.1f} cm for {energy} with field size {user_inputs['field_size']:.1f} cm:** {percent_dd_display:.1f}%")
+effective_depth = user_inputs["depth"] + bolus_thickness
+percent_dd_display = lookup_percent_dd(energy, user_inputs["field_size"], effective_depth)
+st.write(f"**Effective Depth (depth + bolus):** {effective_depth:.2f} cm")
+st.write(f"**%DD at {effective_depth:.1f} cm for {energy}, field size {user_inputs['field_size']:.1f} cm:** {percent_dd_display:.1f}%")
+st.write(f"**Wedge Angle:** {wedge_angle}°  →  **Wedge Factor:** {wf:.3f}")
+st.write(f"**Bolus Thickness:** {bolus_thickness:.2f} cm")
 
-tmr = calc_tmr(percent_dd_display, user_inputs["depth"], geometry_short, SSD_input)
-mu = calc_mu(user_inputs["dose"], user_inputs["field_size"], user_inputs["mu_rate"], tmr,
-             user_inputs["wf"], user_inputs["isf"], user_inputs["tf"])
+# MU Calculation
+tmr = calc_tmr(percent_dd_display, effective_depth, geometry_short, SSD_input)
+mu = calc_mu(user_inputs["dose"], user_inputs["field_size"], user_inputs["mu_rate"], tmr, wf, user_inputs["isf"], user_inputs["tf"])
 
 st.markdown("---")
 if mu is None:
@@ -209,13 +225,13 @@ mu_vals = []
 for val in plot_range:
     trial = user_inputs.copy()
     trial[var_to_plot] = val
-    percent_dd = lookup_percent_dd(energy, trial["field_size"], trial["depth"])
-    tmr = calc_tmr(percent_dd, trial["depth"], geometry_short, SSD_input)
-    mu_trial = calc_mu(trial["dose"], trial["field_size"], trial["mu_rate"], tmr,
-                       trial["wf"], trial["isf"], trial["tf"])
+    eff_depth = trial["depth"] + bolus_thickness
+    percent_dd = lookup_percent_dd(energy, trial["field_size"], eff_depth)
+    tmr = calc_tmr(percent_dd, eff_depth, geometry_short, SSD_input)
+    mu_trial = calc_mu(trial["dose"], trial["field_size"], trial["mu_rate"], tmr, wf, trial["isf"], trial["tf"])
     mu_vals.append(mu_trial if mu_trial else np.nan)
 
-# Display actual values used for the sensitivity plot
+# Display input summary
 st.markdown("#### Parameters Used for Sensitivity Plot")
 st.code(
     "\n".join([
@@ -223,8 +239,8 @@ st.code(
         for k, v in user_inputs.items()
     ]) + (
         f"\nGeometry: {geometry_short}\n"
-        + (f"SSD: {SSD_input:.1f} cm" if geometry_short == "SSD" else "SSD: N/A") + 
-        f"\nEnergy: {energy}"
+        + (f"SSD: {SSD_input:.1f} cm" if geometry_short == "SSD" else "SSD: N/A") +
+        f"\nEnergy: {energy}\nWedge Angle: {wedge_angle}°\nBolus Thickness: {bolus_thickness:.2f} cm"
     ),
     language="yaml"
 )
