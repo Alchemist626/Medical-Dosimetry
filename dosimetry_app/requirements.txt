@@ -2,3 +2,4 @@ streamlit
 pydicom
 numpy
 matplotlib
+pandas
