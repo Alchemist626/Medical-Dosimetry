@@ -122,21 +122,21 @@ decoupled_wedge = False
 if wedge_used == "No":
     st.write("Wedge factor = 1.0")
 else:
-    col1, col2, col3 = st.columns([2, 2, 1])
-
+    col1, col2 = st.columns([3, 3])
+    
+    # Compose wedge options list with both angle and factor displayed
+    wedge_options = [f"{angle}° ({wedge_factors[angle]:.2f})" for angle in sorted(wedge_factors.keys())]
+    
     with col1:
-        wedge_angle = st.selectbox("Wedge Angle (degrees)", sorted(wedge_factors.keys()))
-
+        wedge_choice = st.selectbox("Wedge Angle (with Factor)", wedge_options)
+        wedge_angle = int(wedge_choice.split("°")[0])
+        
     with col2:
         decoupled_wedge = st.checkbox("Decouple Wedge Inputs?")
-
         if decoupled_wedge:
             wf = st.number_input("Wedge Factor (manual)", min_value=0.5, max_value=1.0, value=lookup_wedge_factor(wedge_angle), step=0.001)
         else:
             wf = lookup_wedge_factor(wedge_angle)
-
-    with col3:
-        st.write("")  # spacer
 
 bolus_used = st.checkbox("Apply Bolus?")
 bolus_thickness = 0.0
