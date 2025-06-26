@@ -43,7 +43,7 @@ percent_depth_dose = {
     "10 MV": {0: 100, 1: 99.5, 3: 93, 5: 89, 10: 76, 15: 63, 20: 52, 25: 42, 30: 33},
 }
 
-# --- Helpers ---
+# --- Helper functions ---
 def interpolate_lookup(x, table):
     keys = sorted(table.keys())
     if x in table:
@@ -74,24 +74,41 @@ def calc_mu(dose, field_size, mu_rate, tmr, wf, isf, tf):
         return None
     return dose / denom
 
-# --- User Inputs ---
+# --- Sidebar inputs ---
 st.sidebar.header("Geometry & Energy Setup")
-geometry = st.sidebar.selectbox("Geometry Setup", ["SAD", "SSD"])
+
+geometry = st.sidebar.radio("Select Geometry Setup", ["SAD (Isocentric)", "SSD (Fixed SSD)"])
+geometry_short = "SSD" if "SSD" in geometry else "SAD"
+
 energy = st.sidebar.selectbox("Beam Energy", list(percent_depth_dose.keys()))
 
-if geometry == "SSD":
+SSD_input = None
+if geometry_short == "SSD":
     SSD_input = st.sidebar.number_input("SSD (cm)", value=95.0, step=0.5)
-else:
-    SSD_input = None
 
-# Default input values and increments
+st.sidebar.markdown(f"**SAD (fixed):** {SAD_DEFAULT} cm")
+
+# --- Main inputs ---
+st.subheader("Input Parameters")
+
 baseline_inputs = {
-    "dose": 200.0, "field_size": 10.0, "mu_rate": 100.0,
-    "depth": 5.0, "wf": 1.0, "isf": 1.0, "tf": 1.0
+    "dose": 200.0,
+    "field_size": 10.0,
+    "mu_rate": 100.0,
+    "depth": 5.0,
+    "wf": 1.0,
+    "isf": 1.0,
+    "tf": 1.0,
 }
+
 increments = {
-    "dose": 10.0, "field_size": 1.0, "mu_rate": 5.0,
-    "depth": 0.5, "wf": 0.05, "isf": 0.05, "tf": 0.05
+    "dose": 10.0,
+    "field_size": 1.0,
+    "mu_rate": 5.0,
+    "depth": 0.5,
+    "wf": 0.05,
+    "isf": 0.05,
+    "tf": 0.05,
 }
 
 def sensitivity(var_name, inputs, inc, energy, geometry, SSD_input):
@@ -112,16 +129,33 @@ def sensitivity(var_name, inputs, inc, energy, geometry, SSD_input):
     return ((up["mu"] - base_mu) / base_mu) * 100, ((down["mu"] - base_mu) / base_mu) * 100
 
 user_inputs = {}
-st.subheader("Input Parameters")
 for key in baseline_inputs:
     inc = increments[key]
-    up_pct, down_pct = sensitivity(key, baseline_inputs, inc, energy, geometry, SSD_input)
-    help_text = f"↑{inc} → MU {up_pct:+.1f}%, ↓{inc} → MU {down_pct:+.1f}%" if up_pct else "N/A"
-    user_inputs[key] = st.number_input(key.replace("_", " ").capitalize(), value=baseline_inputs[key], step=inc/10, help=help_text)
+    up_pct, down_pct = sensitivity(key, baseline_inputs, inc, energy, geometry_short, SSD_input)
+    help_text = f"Increase by {inc} → MU {up_pct:+.1f}%, decrease by {inc} → MU {down_pct:+.1f}%" if up_pct else "N/A"
+    user_inputs[key] = st.number_input(
+        key.replace("_", " ").capitalize(),
+        value=baseline_inputs[key],
+        step=inc / 10,
+        help=help_text
+    )
 
-# --- MU Calculation ---
-percent_dd = lookup_percent_dd(energy, user_inputs["depth"])
-tmr = calc_tmr(percent_dd, user_inputs["depth"], geometry, SSD_input)
+# --- Display SSD, SAD, %DD info ---
+st.markdown("---")
+st.subheader("Dose Calculation Parameters")
+
+if geometry_short == "SSD":
+    st.write(f"**SSD:** {SSD_input:.1f} cm")
+else:
+    st.write("**SSD:** Not applicable (using SAD geometry)")
+
+st.write(f"**SAD:** {SAD_DEFAULT} cm (fixed)")
+
+percent_dd_display = lookup_percent_dd(energy, user_inputs["depth"])
+st.write(f"**Percent Depth Dose (%DD) at {user_inputs['depth']:.1f} cm for {energy}:** {percent_dd_display:.1f}%")
+
+# --- Calculate MU ---
+tmr = calc_tmr(percent_dd_display, user_inputs["depth"], geometry_short, SSD_input)
 mu = calc_mu(user_inputs["dose"], user_inputs["field_size"], user_inputs["mu_rate"], tmr,
              user_inputs["wf"], user_inputs["isf"], user_inputs["tf"])
 
@@ -129,17 +163,12 @@ st.markdown("---")
 if mu is None:
     st.error("Invalid parameters for MU calculation.")
 else:
-    st.success(f"### MU = {mu:.2f}")
+    st.success(f"### Calculated MU: {mu:.2f}")
 
-# --- Diagnostics ---
-st.write("#### Intermediate Values")
-st.write(f"**%DD at depth:** {percent_dd:.1f}%")
-st.write(f"**TMR (adjusted):** {tmr:.4f}")
-st.write(f"**Output Factor:** {lookup_output_factor(user_inputs['field_size']):.3f}")
-
-# --- Sensitivity Plot ---
+# --- Sensitivity plot ---
 st.markdown("---")
 st.subheader("MU Sensitivity Plot")
+
 var_to_plot = st.selectbox("Plot MU vs", list(baseline_inputs.keys()))
 plot_range = {
     "dose": np.linspace(100, 300, 50),
@@ -156,10 +185,15 @@ for val in plot_range:
     trial = user_inputs.copy()
     trial[var_to_plot] = val
     percent_dd = lookup_percent_dd(energy, trial["depth"])
-    tmr = calc_tmr(percent_dd, trial["depth"], geometry, SSD_input)
+    tmr = calc_tmr(percent_dd, trial["depth"], geometry_short, SSD_input)
     mu_trial = calc_mu(trial["dose"], trial["field_size"], trial["mu_rate"], tmr,
                        trial["wf"], trial["isf"], trial["tf"])
     mu_vals.append(mu_trial if mu_trial else np.nan)
 
-df_plot = pd.DataFrame({var_to_plot: plot_range, "MU": mu_vals}).set_index(var_to_plot)
-st.line_chart(df_plot)
+fig, ax = plt.subplots()
+ax.plot(plot_range, mu_vals, label="MU", color='blue')
+ax.set_title(f"MU Sensitivity vs {var_to_plot.replace('_', ' ').capitalize()}", fontsize=14)
+ax.set_xlabel(f"{var_to_plot.replace('_', ' ').capitalize()}", fontsize=12)
+ax.set_ylabel("Monitor Units (MU)", fontsize=12)
+ax.grid(True)
+st.pyplot(fig)
