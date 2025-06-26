@@ -1,11 +1,11 @@
 import streamlit as st
 import numpy as np
 
-st.set_page_config(page_title="MU Calculator with Sensitivity", layout="centered")
+st.set_page_config(page_title="MU Calculator with Input & MU Sensitivity", layout="centered")
 
-st.title("Monitor Unit (MU) Calculator with Sensitivity Preview")
+st.title("Monitor Unit (MU) Calculator with Input & MU Sensitivity")
 
-# === Lookup Tables ===
+# Lookup tables
 output_factor_table = {
     5: 0.95,
     7.5: 0.98,
@@ -55,7 +55,6 @@ def calc_mu(dose, field_size, mu_rate, energy, depth, wf, isf, tf):
         return None
     return dose / denom
 
-# === Baseline values for sensitivity ===
 baseline_inputs = {
     "dose": 200.0,
     "field_size": 10.0,
@@ -67,28 +66,42 @@ baseline_inputs = {
     "tf": 1.0
 }
 
-def sensitivity_for_var(var_name, baseline_inputs, percent_change=0.1):
+# Fixed increments for inputs
+increments = {
+    "dose": 10.0,
+    "field_size": 1.0,
+    "mu_rate": 5.0,
+    "depth": 0.5,
+    "wf": 0.05,
+    "isf": 0.05,
+    "tf": 0.05,
+}
+
+def sensitivity_percent_change(var_name, baseline_inputs, increment):
     baseline_mu = calc_mu(**baseline_inputs)
-    if baseline_mu is None:
+    if baseline_mu is None or baseline_mu == 0:
         return None, None
 
     perturbed_up = baseline_inputs.copy()
     perturbed_down = baseline_inputs.copy()
 
-    perturbed_up[var_name] = baseline_inputs[var_name] * (1 + percent_change)
-    perturbed_down[var_name] = baseline_inputs[var_name] * (1 - percent_change)
+    perturbed_up[var_name] = baseline_inputs[var_name] + increment
+    perturbed_down[var_name] = baseline_inputs[var_name] - increment
+
+    # Avoid invalid values (zero or negative)
+    if perturbed_down[var_name] <= 0:
+        perturbed_down[var_name] = baseline_inputs[var_name]
 
     mu_up = calc_mu(**perturbed_up)
     mu_down = calc_mu(**perturbed_down)
 
+    if mu_up is None or mu_down is None:
+        return None, None
+
     def pct_change(val):
-        if val is None:
-            return None
         return 100 * (val - baseline_mu) / baseline_mu
 
     return pct_change(mu_up), pct_change(mu_down)
-
-# === UI Inputs with inline sensitivity ===
 
 variables = [
     ("dose", "Prescribed Dose (cGy)", 1.0),
@@ -103,10 +116,12 @@ variables = [
 user_inputs = {}
 
 for var_key, var_label, step_val in variables:
-    up_chg, down_chg = sensitivity_for_var(var_key, baseline_inputs)
-    if up_chg is not None and down_chg is not None:
+    increment = increments.get(var_key, 0.1)
+    up_pct, down_pct = sensitivity_percent_change(var_key, baseline_inputs, increment)
+    if up_pct is not None and down_pct is not None:
         sensitivity_msg = (
-            f"Changing this ±10% changes MU by about +{up_chg:.1f}% / {down_chg:.1f}%"
+            f"Increasing by {increment} changes MU by {up_pct:+.2f}% ; "
+            f"decreasing by {increment} changes MU by {down_pct:+.2f}%"
         )
     else:
         sensitivity_msg = "Sensitivity data not available."
@@ -125,10 +140,8 @@ energy = st.selectbox(
     index=list(percent_depth_dose.keys()).index(baseline_inputs["energy"]),
     help="Energy affects percent depth dose and beam penetration."
 )
-
 user_inputs["energy"] = energy
 
-# === Perform calculation ===
 result_mu = calc_mu(
     user_inputs["dose"],
     user_inputs["field_size"],
@@ -141,11 +154,10 @@ result_mu = calc_mu(
 )
 
 if result_mu is None:
-    st.error("One or more input values resulted in division by zero. Please adjust inputs.")
+    st.error("Invalid inputs: division by zero.")
 else:
     st.success(f"### Calculated MU: {result_mu:.2f}")
 
-# === Show lookup values for reference ===
 st.write("---")
 st.subheader("Lookup Values Used")
 output_factor_val = lookup_output_factor(user_inputs["field_size"])
