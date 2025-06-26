@@ -31,7 +31,6 @@ $$
 SAD_DEFAULT = 100.0  # cm
 
 # Lookup Tables
-
 output_factor_table = {
     5: 0.95, 7.5: 0.98, 10: 1.00, 15: 1.05, 20: 1.10,
 }
@@ -51,7 +50,6 @@ percent_depth_dose = {
 }
 
 # Helper functions
-
 def interpolate_lookup(x, table):
     keys = sorted(table.keys())
     if x in table:
@@ -102,13 +100,10 @@ def calc_mu(dose, field_size, mu_rate, tmr, wf, isf, tf):
         return None
     return dose / denom
 
-# Geometry selection
+# Geometry and energy setup
 st.subheader("Geometry & Energy Setup")
 
-geometry = st.radio(
-    "Select Geometry Setup",
-    ["SAD (Isocentric)", "SSD (Fixed SSD)"]
-)
+geometry = st.radio("Select Geometry Setup", ["SAD (Isocentric)", "SSD (Fixed SSD)"])
 geometry_short = "SSD" if "SSD" in geometry else "SAD"
 
 SSD_input = None
@@ -171,6 +166,7 @@ for key in baseline_inputs:
         help=help_text
     )
 
+# Display calculation parameters
 st.markdown("---")
 st.subheader("Dose Calculation Parameters")
 
@@ -218,6 +214,20 @@ for val in plot_range:
     mu_trial = calc_mu(trial["dose"], trial["field_size"], trial["mu_rate"], tmr,
                        trial["wf"], trial["isf"], trial["tf"])
     mu_vals.append(mu_trial if mu_trial else np.nan)
+
+# Display actual values used for the sensitivity plot
+st.markdown("#### Parameters Used for Sensitivity Plot")
+st.code(
+    "\n".join([
+        f"{k.replace('_',' ').capitalize()}: {v:.2f}" if k != var_to_plot else f"{k.replace('_',' ').capitalize()}: varied"
+        for k, v in user_inputs.items()
+    ]) + (
+        f"\nGeometry: {geometry_short}\n"
+        + (f"SSD: {SSD_input:.1f} cm" if geometry_short == "SSD" else "SSD: N/A") + 
+        f"\nEnergy: {energy}"
+    ),
+    language="yaml"
+)
 
 fig, ax = plt.subplots()
 ax.plot(plot_range, mu_vals, label="MU", color='blue')
