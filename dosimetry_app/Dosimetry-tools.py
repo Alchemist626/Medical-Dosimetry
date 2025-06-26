@@ -113,39 +113,45 @@ energy = st.selectbox("Beam Energy", list(percent_depth_dose.keys()))
 # Optional Corrections
 st.subheader("Optional Corrections")
 
-# Wedge setup
 wedge_used = st.radio("Apply Wedge?", ["No", "Yes"])
+
 wedge_angle = 0
 wf = 1.0
 decoupled_wedge = False
 
-if wedge_used == "Yes":
-    col1, col2 = st.columns([1, 1])
+if wedge_used == "No":
+    st.write("Wedge factor = 1.0")
+else:
+    col1, col2, col3 = st.columns([2, 2, 1])
+
     with col1:
         wedge_angle = st.selectbox("Wedge Angle (degrees)", sorted(wedge_factors.keys()))
+
     with col2:
         decoupled_wedge = st.checkbox("Decouple Wedge Inputs?")
-    
-    if decoupled_wedge:
-        with col2:
-            wf = st.number_input("Wedge Factor (manual)", min_value=0.5, max_value=1.0, value=lookup_wedge_factor(wedge_angle), step=0.01)
-    else:
-        wf = lookup_wedge_factor(wedge_angle)
 
-# Bolus setup
+        if decoupled_wedge:
+            wf = st.number_input("Wedge Factor (manual)", min_value=0.5, max_value=1.0, value=lookup_wedge_factor(wedge_angle), step=0.01)
+            st.markdown(f"**Wedge Factor:** {wf:.3f}")
+        else:
+            wf = lookup_wedge_factor(wedge_angle)
+            st.markdown(f"**Wedge Factor:** {wf:.3f}")
+
+    with col3:
+        st.write("")  # spacer
+
 bolus_used = st.checkbox("Apply Bolus?")
 bolus_thickness = 0.0
 if bolus_used:
     bolus_thickness = st.number_input("Bolus Thickness (cm)", min_value=0.0, value=0.5, step=0.1)
 
-# Input parameters
+# Input parameters (without wedge factor)
 st.subheader("Input Parameters")
 baseline_inputs = {
     "dose": 200.0,
     "field_size": 10.0,
     "mu_rate": 100.0,
     "depth": 5.0,
-    "wf": wf,
     "isf": 1.0,
     "tf": 1.0,
 }
@@ -155,7 +161,6 @@ increments = {
     "field_size": 1.0,
     "mu_rate": 5.0,
     "depth": 0.5,
-    "wf": 0.05,
     "isf": 0.05,
     "tf": 0.05,
 }
@@ -227,7 +232,6 @@ plot_range = {
     "field_size": np.linspace(5, 20, 50),
     "mu_rate": np.linspace(50, 150, 50),
     "depth": np.linspace(0, 30, 50),
-    "wf": np.linspace(0.5, 1.5, 50),
     "isf": np.linspace(0.7, 1.3, 50),
     "tf": np.linspace(0.7, 1.3, 50),
 }[var_to_plot]
