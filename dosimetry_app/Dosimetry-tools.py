@@ -131,11 +131,9 @@ else:
         decoupled_wedge = st.checkbox("Decouple Wedge Inputs?")
 
         if decoupled_wedge:
-            wf = st.number_input("Wedge Factor (manual)", min_value=0.5, max_value=1.0, value=lookup_wedge_factor(wedge_angle), step=0.01)
-            st.markdown(f"**Wedge Factor:** {wf:.3f}")
+            wf = st.number_input("Wedge Factor (manual)", min_value=0.5, max_value=1.0, value=lookup_wedge_factor(wedge_angle), step=0.001)
         else:
             wf = lookup_wedge_factor(wedge_angle)
-            st.markdown(f"**Wedge Factor:** {wf:.3f}")
 
     with col3:
         st.write("")  # spacer
@@ -209,7 +207,16 @@ effective_depth = user_inputs["depth"] + bolus_thickness
 percent_dd_display = lookup_percent_dd(energy, user_inputs["field_size"], effective_depth)
 st.write(f"**Effective Depth (depth + bolus):** {effective_depth:.2f} cm")
 st.write(f"**%DD at {effective_depth:.1f} cm for {energy}, field size {user_inputs['field_size']:.1f} cm:** {percent_dd_display:.1f}%")
-st.write(f"**Wedge Angle:** {wedge_angle}°  →  **Wedge Factor:** {wf:.3f}")
+
+# Show wedge info conditionally based on decoupling toggle
+if wedge_used == "No":
+    st.write("**Wedge factor:** 1.000 (No wedge applied)")
+else:
+    if decoupled_wedge:
+        st.write(f"**Wedge Factor:** {wf:.3f} (Manual input)")
+    else:
+        st.write(f"**Wedge Angle:** {wedge_angle}° →  **Wedge Factor:** {wf:.3f}")
+
 st.write(f"**Bolus Thickness:** {bolus_thickness:.2f} cm")
 
 # MU Calculation
@@ -248,6 +255,7 @@ for val in plot_range:
 
 # Display input summary
 st.markdown("#### Parameters Used for Sensitivity Plot")
+wedge_text = (f"Wedge Factor: {wf:.3f} (Manual input)" if decoupled_wedge else f"Wedge Angle: {wedge_angle}° → Wedge Factor: {wf:.3f}")
 st.code(
     "\n".join([
         f"{k.replace('_',' ').capitalize()}: {v:.2f}" if k != var_to_plot else f"{k.replace('_',' ').capitalize()}: varied"
@@ -255,7 +263,7 @@ st.code(
     ]) + (
         f"\nGeometry: {geometry_short}\n"
         + (f"SSD: {SSD_input:.1f} cm" if geometry_short == "SSD" else "SSD: N/A") +
-        f"\nEnergy: {energy}\nWedge Angle: {wedge_angle}°\nWedge Factor: {wf:.3f}\nBolus Thickness: {bolus_thickness:.2f} cm"
+        f"\nEnergy: {energy}\n{wedge_text}\nBolus Thickness: {bolus_thickness:.2f} cm"
     ),
     language="yaml"
 )
